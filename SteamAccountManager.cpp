@@ -31,7 +31,7 @@ class Account {
 string getParameter(ifstream &file, string param);
 vector<Account> getAccounts(string accountsString);
 int getValidInput(int min, int max);
-void printOptions(vector<Account> &accounts);
+void printOptions(string &path, vector<Account> &accounts);
 void changePath(string &path);
 void addAccount(vector<Account> &accounts);
 void deleteAccount(vector<Account> &accounts);
@@ -50,76 +50,87 @@ int main() {
     accounts = getAccounts(as);
 
     file.close();
-
-    printOptions(accounts);
-
-    int input = getValidInput(0, accounts.size());
-
-    if (input == 0) {
-      cout << "\nAdditional options:" << endl;
-      cout << "1. Add new account" << endl;
-      cout << "2. Delete existing account" << endl;
-      cout << "3. Change 'steam.exe' path" << endl;
-      cout << "Select option: ";
-      int option = getValidInput(1, 3);
-
-      if (option == 1) {
-        addAccount(accounts);
-      } else if (option == 2) {
-        deleteAccount(accounts);
-      } else {
-        changePath(path);
-      }
-      saveConfig(path, accounts);
-    } else {
-      Account account = accounts[input - 1];
-
-      cout << '\n' << "Opening account: ";
-      cout << account.username << endl;
-
-      // TERMINATE STEAM.EXE
-      wstring processName(L"steam.exe");
-      const wchar_t *szName = processName.c_str();
-
-      PROCESSENTRY32 entry;
-      entry.dwSize = sizeof(PROCESSENTRY32);
-
-      HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 1);
-
-      if (Process32First(snapshot, &entry) == TRUE) {
-        while (Process32Next(snapshot, &entry) == TRUE) {
-          if (wcscmp(entry.szExeFile, szName) == 0) {
-            HANDLE hProcess =
-                OpenProcess(PROCESS_ALL_ACCESS, FALSE, entry.th32ProcessID);
-
-            // Do stuff..
-            BOOL result = TerminateProcess(hProcess, 1);
-            CloseHandle(hProcess);
-          }
-        }
-      }
-
-      CloseHandle(snapshot);
-
-      // STEAM LOGIN
-      wstring wpath(path.begin(), path.end());
-      LPCWSTR lpFile = wpath.c_str();
-
-      string lCommand = "-login " + account.username + " " + account.password;
-      wstring wcommand(lCommand.begin(), lCommand.end());
-      LPCWSTR lpParameters = wcommand.c_str();
-
-      ShellExecute(NULL, NULL, lpFile, lpParameters, NULL, SW_SHOW);
-    }
+    printOptions(path, accounts);
   } else {
     cout << "First time setup..." << endl;
     changePath(path);
     addAccount(accounts);
-
     saveConfig(path, accounts);
+
+    printOptions(path, accounts);
   }
 
   return 0;
+}
+
+void printOptions(string &path, vector<Account> &accounts) {
+  cout << "Enter 0 for additional options." << endl;
+
+  for (size_t i = 0; i < accounts.size(); ++i) {
+    cout << i + 1 << ". " << accounts[i].username << endl;
+  }
+
+  cout << "Select option: ";
+
+  int input = getValidInput(0, accounts.size());
+
+  if (input == 0) {
+    cout << endl;
+    cout << "Additional options:" << endl;
+    cout << "1. Add new account" << endl;
+    cout << "2. Delete existing account" << endl;
+    cout << "3. Change 'steam.exe' path" << endl;
+    cout << "Select option: ";
+    int option = getValidInput(1, 3);
+
+    if (option == 1) {
+      addAccount(accounts);
+    } else if (option == 2) {
+      deleteAccount(accounts);
+    } else {
+      changePath(path);
+    }
+    saveConfig(path, accounts);
+
+    cout << endl;
+    printOptions(path, accounts);
+  } else {
+    // ACCOUNT TO OPEN
+    Account account = accounts[input - 1];
+
+    // TERMINATE STEAM.EXE
+    wstring processName(L"steam.exe");
+    const wchar_t *szName = processName.c_str();
+
+    PROCESSENTRY32 entry;
+    entry.dwSize = sizeof(PROCESSENTRY32);
+
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 1);
+
+    if (Process32First(snapshot, &entry) == TRUE) {
+      while (Process32Next(snapshot, &entry) == TRUE) {
+        if (wcscmp(entry.szExeFile, szName) == 0) {
+          HANDLE hProcess =
+              OpenProcess(PROCESS_ALL_ACCESS, FALSE, entry.th32ProcessID);
+
+          BOOL result = TerminateProcess(hProcess, 1);
+          CloseHandle(hProcess);
+        }
+      }
+    }
+
+    CloseHandle(snapshot);
+
+    // STEAM LOGIN
+    wstring wpath(path.begin(), path.end());
+    LPCWSTR lpFile = wpath.c_str();
+
+    string lCommand = "-login " + account.username + " " + account.password;
+    wstring wcommand(lCommand.begin(), lCommand.end());
+    LPCWSTR lpParameters = wcommand.c_str();
+
+    ShellExecute(NULL, NULL, lpFile, lpParameters, NULL, SW_SHOW);
+  }
 }
 
 string getParameter(ifstream &file, string param) {
@@ -171,16 +182,6 @@ int getValidInput(int min, int max) {
   return i;
 }
 
-void printOptions(vector<Account> &accounts) {
-  cout << "Enter 0 for additional options." << endl;
-
-  for (size_t i = 0; i < accounts.size(); ++i) {
-    cout << i + 1 << ". " << accounts[i].username << endl;
-  }
-
-  cout << "Select option: ";
-}
-
 void addAccount(vector<Account> &accounts) {
   string username, password;
 
@@ -203,7 +204,7 @@ void deleteAccount(vector<Account> &accounts) {
 }
 
 void changePath(string &path) {
-  cout << "Enter new path: ";
+  cout << "Enter 'steam.exe' path: ";
 
   cin.ignore();
   getline(cin, path);
