@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+// ARCHIVED VERSION
+
 struct account_data {
   char user[20][40];
   char pass[20][40];
