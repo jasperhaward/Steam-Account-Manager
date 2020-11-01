@@ -179,6 +179,8 @@ int getValidInput(int min, int max) {
     cout << "Invalid input. Try again: ";
   }
 
+  cin.ignore(numeric_limits<streamsize>::max(), '\n');
+
   return i;
 }
 
@@ -205,8 +207,6 @@ void deleteAccount(vector<Account> &accounts) {
 
 void changePath(string &path) {
   cout << "Enter 'steam.exe' path: ";
-
-  cin.ignore();
   getline(cin, path);
 }
 
