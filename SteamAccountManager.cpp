@@ -84,7 +84,7 @@ int main() {
       PROCESSENTRY32 entry;
       entry.dwSize = sizeof(PROCESSENTRY32);
 
-      HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, NULL);
+      HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 1);
 
       if (Process32First(snapshot, &entry) == TRUE) {
         while (Process32Next(snapshot, &entry) == TRUE) {
