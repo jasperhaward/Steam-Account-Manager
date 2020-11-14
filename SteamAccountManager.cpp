@@ -4,18 +4,24 @@
 // clang-format off
 #include <windows.h>
 #include <tlhelp32.h>
+#include <winreg.h>
 #include <shellapi.h>
 // clang-format on
 
 #include <fstream>
 #include <iostream>
-#include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
 using namespace std;
 
 const char *CONFIG_FILENAME = "config.dat";
+const string STEAM_EXE = "steam.exe";
+const string DEFAULT_STEAM_DIR = "C:\\Program Files (x86)\\Steam";
+
+LPCSTR STEAM_REG_PATH = "Software\\Valve\\Steam";
+LPCSTR STEAM_REG_LOGIN_KEY = "AutoLoginUser";
+LPCSTR STEAM_REG_PW_KEY = "RememberPassword";
 
 class Account {
  public:
@@ -28,199 +34,241 @@ class Account {
   }
 };
 
-string getParameter(ifstream &file, string param);
-vector<Account> getAccounts(string accountsString);
-int getValidInput(int min, int max);
-void printOptions(string &path, vector<Account> &accounts);
-void changePath(string &path);
-void addAccount(vector<Account> &accounts);
-void deleteAccount(vector<Account> &accounts);
-void saveConfig(string &path, vector<Account> &accounts);
-
-int main() {
-  ifstream file(CONFIG_FILENAME);
-  string path;
+class Config {
+ public:
+  string dir;
   vector<Account> accounts;
 
-  if (file.is_open()) {
-    string ps = getParameter(file, "path");
-    path = ps.erase(ps.size() - 1);
+  void addAccount(string u, string p) {
+    Account a(u, p);
+    accounts.push_back(a);
+    save();
+  }
 
-    string as = getParameter(file, "accounts");
-    accounts = getAccounts(as);
+  void removeAccount(int i) {
+    accounts.erase(accounts.begin() + i);
+    save();
+  }
+
+  void changeDirectory(string d) {
+    dir = d;
+    save();
+  }
+
+  bool load() {
+    ifstream file(filename);
+
+    if (file.is_open()) {
+      stringstream buffer;
+      buffer << file.rdbuf();
+      string str = buffer.str();
+
+      dir = getParameter(str, "dir");
+      string accStr = getParameter(str, "accounts");
+
+      // GET ACCOUNTS
+      istringstream accss(accStr);
+      string line, u, p;
+      while (getline(accss, line)) {
+        istringstream ss(line);
+        ss >> u >> p;
+        addAccount(u, p);
+      }
+
+      file.close();
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  Config(const char *f) { filename = f; }
+
+ private:
+  const char *filename;
+
+  string getParameter(string &str, string param) {
+    string startStr = "[" + param + "]\n";
+    string endStr = "[";
+
+    unsigned start = str.find(startStr) + startStr.size();
+    unsigned end = str.find(endStr, start) - endStr.size();
+
+    return str.substr(start, end - start);
+  }
+
+  void save() {
+    ofstream file(filename);
+
+    file << "[dir]" << '\n';
+    file << dir << '\n';
+
+    file << "[accounts]";
+    for (auto &account : accounts) {
+      file << '\n' << account.username << ' ' << account.password;
+    }
 
     file.close();
-    printOptions(path, accounts);
-  } else {
-    cout << "First time setup..." << endl;
-    changePath(path);
-    addAccount(accounts);
-    saveConfig(path, accounts);
-
-    printOptions(path, accounts);
   }
+};
+
+void setup(Config &config);
+void options(Config &config);
+void additionalOptions(Config &config);
+
+void start(string path);
+void terminate(string name);
+void updateRegistry(string username);
+
+int getValidInput(int min, int max);
+
+int main() {
+  Config config(CONFIG_FILENAME);
+  bool existingConfig = config.load();
+
+  if (!existingConfig) {
+    setup(config);
+    cout << endl;
+  }
+  options(config);
 
   return 0;
 }
 
-void printOptions(string &path, vector<Account> &accounts) {
-  cout << "Enter 0 for additional options." << endl;
+void setup(Config &config) {
+  cout << "First time setup... \n"
+       << "Use default Steam directory: '" << DEFAULT_STEAM_DIR << "'? \n"
+       << "1. Yes \n"
+       << "0. No \n"
+       << "Select option: ";
 
-  for (size_t i = 0; i < accounts.size(); ++i) {
-    cout << i + 1 << ". " << accounts[i].username << endl;
+  int option = getValidInput(0, 1);
+
+  string dir = DEFAULT_STEAM_DIR;
+  if (option == 0) {
+    cout << "Enter 'steam.exe' directory: ";
+    getline(cin, dir);
   }
+  config.changeDirectory(dir);
 
-  cout << "Select option: ";
+  string u, p;
+  cout << "Enter account username: ";
+  cin >> u;
+  cout << "Enter account password: ";
+  cin >> p;
 
-  int input = getValidInput(0, accounts.size());
+  config.addAccount(u, p);
+}
+
+void options(Config &config) {
+  cout << "Enter 0 for additional options. \n";
+  for (size_t i = 0; i < config.accounts.size(); ++i) {
+    cout << i + 1 << ". " << config.accounts[i].username << "\n";
+  }
+  cout << "Enter option: ";
+
+  int input = getValidInput(0, config.accounts.size());
 
   if (input == 0) {
     cout << endl;
-    cout << "Additional options:" << endl;
-    cout << "1. Add new account" << endl;
-    cout << "2. Delete existing account" << endl;
-    cout << "3. Change 'steam.exe' path" << endl;
-    cout << "Select option: ";
-    int option = getValidInput(1, 3);
-
-    if (option == 1) {
-      addAccount(accounts);
-    } else if (option == 2) {
-      deleteAccount(accounts);
-    } else {
-      changePath(path);
-    }
-    saveConfig(path, accounts);
-
+    additionalOptions(config);
     cout << endl;
-    printOptions(path, accounts);
+    options(config);
   } else {
-    // ACCOUNT TO OPEN
-    Account account = accounts[input - 1];
+    Account account = config.accounts[input - 1];
 
-    // TERMINATE STEAM.EXE
-    wstring processName(L"steam.exe");
-    const wchar_t *szName = processName.c_str();
+    terminate(STEAM_EXE);
+    updateRegistry(account.username);
 
-    PROCESSENTRY32 entry;
-    entry.dwSize = sizeof(PROCESSENTRY32);
+    string steamPath = config.dir + "\\" + STEAM_EXE;
+    start(steamPath);
+  }
+}
 
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 1);
+void additionalOptions(Config &config) {
+  cout << "Additional options: \n"
+       << "1. Add new account \n"
+       << "2. Delete existing account \n"
+       << "3. Change 'steam.exe' directory \n"
+       << "Select option: ";
 
-    if (Process32First(snapshot, &entry) == TRUE) {
-      while (Process32Next(snapshot, &entry) == TRUE) {
-        if (wcscmp(entry.szExeFile, szName) == 0) {
-          HANDLE hProcess =
-              OpenProcess(PROCESS_ALL_ACCESS, FALSE, entry.th32ProcessID);
+  int option = getValidInput(1, 3);
 
-          BOOL result = TerminateProcess(hProcess, 1);
-          CloseHandle(hProcess);
-        }
+  if (option == 1) {
+    string u, p;
+    cout << "Enter account username: ";
+    cin >> u;
+    cout << "Enter account password: ";
+    cin >> p;
+
+    config.addAccount(u, p);
+  } else if (option == 2) {
+    cout << "Enter account to delete: ";
+    int i = getValidInput(1, config.accounts.size());
+
+    config.removeAccount(i - 1);
+  } else if (option == 3) {
+    string dir;
+    cout << "Enter 'steam.exe' directory: ";
+    getline(cin, dir);
+
+    config.changeDirectory(dir);
+  }
+}
+
+void start(string path) {
+  wstring lpFile(path.begin(), path.end());
+  ShellExecute(NULL, NULL, lpFile.c_str(), NULL, NULL, SW_SHOW);
+}
+
+void terminate(string name) {
+  wstring wsName(name.begin(), name.end());
+  const wchar_t *szName = wsName.c_str();
+
+  PROCESSENTRY32 entry;
+  entry.dwSize = sizeof(PROCESSENTRY32);
+
+  HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 1);
+
+  if (Process32First(snapshot, &entry) == TRUE) {
+    while (Process32Next(snapshot, &entry) == TRUE) {
+      if (wcscmp(entry.szExeFile, szName) == 0) {
+        HANDLE hProcess =
+            OpenProcess(PROCESS_ALL_ACCESS, FALSE, entry.th32ProcessID);
+        BOOL result = TerminateProcess(hProcess, 1);
+        CloseHandle(hProcess);
       }
     }
-
-    CloseHandle(snapshot);
-
-    // STEAM LOGIN
-    wstring wpath(path.begin(), path.end());
-    LPCWSTR lpFile = wpath.c_str();
-
-    string lCommand = "-login " + account.username + " " + account.password;
-    wstring wcommand(lCommand.begin(), lCommand.end());
-    LPCWSTR lpParameters = wcommand.c_str();
-
-    ShellExecute(NULL, NULL, lpFile, lpParameters, NULL, SW_SHOW);
-  }
-}
-
-string getParameter(ifstream &file, string param) {
-  // Reset flags
-  file.clear();
-  file.seekg(0);
-
-  string line, values;
-  bool copy = false;
-
-  while (getline(file, line)) {
-    if (line == '[' + param + ']') {
-      copy = true;
-    } else if (line[0] == '[') {
-      copy = false;
-    } else if (copy) {
-      values += line + '\n';
-    }
   }
 
-  return values;
+  CloseHandle(snapshot);
 }
 
-vector<Account> getAccounts(string accountsStr) {
-  vector<Account> accounts;
-  istringstream accs(accountsStr);
-  string line, username, password;
+// clang-format off
+void updateRegistry(string username) {
+  HKEY hKey;
 
-  while (getline(accs, line)) {
-    istringstream ss(line);
-    ss >> username >> password;
+  char lpLoginValue[50];
+  strncpy(lpLoginValue, username.c_str(), sizeof(lpLoginValue));
+  DWORD lpPwValue = 1;
 
-    Account account(username, password);
-    accounts.push_back(account);
-  }
+  RegOpenKeyExA(HKEY_CURRENT_USER, STEAM_REG_PATH, 0, KEY_SET_VALUE, &hKey);
+  RegSetValueExA(hKey, STEAM_REG_LOGIN_KEY, 0, REG_SZ, (const BYTE *)&lpLoginValue, sizeof(lpLoginValue));
+  RegSetValueExA(hKey, STEAM_REG_PW_KEY, 0, REG_DWORD, (const BYTE *)&lpPwValue, sizeof(lpPwValue));
 
-  return accounts;
+  RegCloseKey(hKey);
 }
+// clang-format on
 
 int getValidInput(int min, int max) {
   int i;
 
   while (!(cin >> i) || i < min || i > max) {
     cin.clear();
-    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    cin.ignore(INT_MAX, '\n');
     cout << "Invalid input. Try again: ";
   }
-
-  cin.ignore(numeric_limits<streamsize>::max(), '\n');
+  cin.ignore(INT_MAX, '\n');
 
   return i;
-}
-
-void addAccount(vector<Account> &accounts) {
-  string username, password;
-
-  cout << "Enter account username: ";
-  cin >> username;
-
-  cout << "Enter account password: ";
-  cin >> password;
-
-  Account account(username, password);
-  accounts.push_back(account);
-}
-
-void deleteAccount(vector<Account> &accounts) {
-  cout << "Enter account to delete: ";
-
-  int i = getValidInput(1, accounts.size());
-
-  accounts.erase(accounts.begin() + (i - 1));
-}
-
-void changePath(string &path) {
-  cout << "Enter 'steam.exe' path: ";
-  getline(cin, path);
-}
-
-void saveConfig(string &path, vector<Account> &accounts) {
-  ofstream file(CONFIG_FILENAME);
-
-  file << "[path]" << endl;
-  file << path << endl;
-
-  file << "[accounts]";
-  for (size_t i = 0; i < accounts.size(); ++i) {
-    file << endl << accounts[i].username;
-    file << ' ' << accounts[i].password;
-  }
-
-  file.close();
 }

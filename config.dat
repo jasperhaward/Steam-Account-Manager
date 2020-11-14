@@ -1,6 +1,7 @@
-[path]
-C:\Program Files (x86)\Steam\steam.exe
+[dir]
+C:\Program Files (x86)\Steam
 [accounts]
-exampleUsername1 password1
-exampleUsername2 password2
-exampleUsername3 password3
+exampleusername1 examplepw1
+exampleusername2 examplepw2
+exampleusername3 examplepw3
+exampleusername4 examplepw4
