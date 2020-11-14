@@ -15,9 +15,10 @@
 #include <vector>
 using namespace std;
 
-const char *CONFIG_FILENAME = "config.dat";
-const string STEAM_EXE = "steam.exe";
-const string DEFAULT_STEAM_DIR = "C:\\Program Files (x86)\\Steam";
+string CONFIG_FILENAME = "config.dat";
+string STEAM_EXE = "steam.exe";
+string STEAM_DEFAULT_DIR = "C:\\Program Files (x86)\\Steam";
+string STEAM_USERS_CONFIG_FILE = "\\config\\loginusers.vdf";
 
 LPCSTR STEAM_REG_PATH = "Software\\Valve\\Steam";
 LPCSTR STEAM_REG_LOGIN_KEY = "AutoLoginUser";
@@ -82,7 +83,7 @@ class Config {
     }
   }
 
-  Config(const char *f) { filename = f; }
+  Config(string f) { filename = f.c_str(); }
 
  private:
   const char *filename;
@@ -116,7 +117,8 @@ void setup(Config &config);
 void options(Config &config);
 void additionalOptions(Config &config);
 
-void start(string path);
+bool checkIfExistingAccount(string username, string configPath);
+void start(string path, bool existingAccount, Account Account);
 void terminate(string name);
 void updateRegistry(string username);
 
@@ -137,14 +139,14 @@ int main() {
 
 void setup(Config &config) {
   cout << "First time setup... \n"
-       << "Use default Steam directory: '" << DEFAULT_STEAM_DIR << "'? \n"
+       << "Use default Steam directory: '" << STEAM_DEFAULT_DIR << "'? \n"
        << "1. Yes \n"
        << "0. No \n"
        << "Select option: ";
 
   int option = getValidInput(0, 1);
 
-  string dir = DEFAULT_STEAM_DIR;
+  string dir = STEAM_DEFAULT_DIR;
   if (option == 0) {
     cout << "Enter 'steam.exe' directory: ";
     getline(cin, dir);
@@ -177,11 +179,14 @@ void options(Config &config) {
   } else {
     Account account = config.accounts[input - 1];
 
+    string configPath = config.dir + STEAM_USERS_CONFIG_FILE;
+    bool existingAccount = checkIfExistingAccount(account.username, configPath);
+
     terminate(STEAM_EXE);
     updateRegistry(account.username);
 
     string steamPath = config.dir + "\\" + STEAM_EXE;
-    start(steamPath);
+    start(steamPath, existingAccount, account);
   }
 }
 
@@ -216,11 +221,36 @@ void additionalOptions(Config &config) {
   }
 }
 
-void start(string path) {
-  wstring lpFile(path.begin(), path.end());
-  ShellExecute(NULL, NULL, lpFile.c_str(), NULL, NULL, SW_SHOW);
+bool checkIfExistingAccount(string username, string configPath) {
+  ifstream file(configPath.c_str());
+
+  if (file.is_open()) {
+    stringstream buffer;
+    buffer << file.rdbuf();
+    string str = buffer.str();
+
+    if (str.find(username) != string::npos) {
+      return true;
+    } else {
+      return false;
+    }
+  }
 }
 
+// clang-format off
+void start(string path, bool existingAccount, Account account) {
+  wstring lpFile(path.begin(), path.end());
+  
+  string params = "-login " + account.username + " " + account.password;
+  wstring wParams(params.begin(), params.end());
+  
+  auto lpParams = (existingAccount) ? NULL : wParams.c_str();
+
+  ShellExecute(NULL, NULL, lpFile.c_str(), lpParams, NULL, SW_SHOW);
+}
+// clang-format on
+
+// clang-format off
 void terminate(string name) {
   wstring wsName(name.begin(), name.end());
   const wchar_t *szName = wsName.c_str();
@@ -233,8 +263,7 @@ void terminate(string name) {
   if (Process32First(snapshot, &entry) == TRUE) {
     while (Process32Next(snapshot, &entry) == TRUE) {
       if (wcscmp(entry.szExeFile, szName) == 0) {
-        HANDLE hProcess =
-            OpenProcess(PROCESS_ALL_ACCESS, FALSE, entry.th32ProcessID);
+        HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, entry.th32ProcessID);
         BOOL result = TerminateProcess(hProcess, 1);
         CloseHandle(hProcess);
       }
@@ -243,6 +272,7 @@ void terminate(string name) {
 
   CloseHandle(snapshot);
 }
+// clang-format on
 
 // clang-format off
 void updateRegistry(string username) {
