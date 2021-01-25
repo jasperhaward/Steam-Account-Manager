@@ -1,7 +1,7 @@
 [dir]
 C:\Program Files (x86)\Steam
-[accounts]
-exampleusername1 examplepw1
-exampleusername2 examplepw2
-exampleusername3 examplepw3
-exampleusername4 examplepw4
+[usernames]
+exampleusername1
+exampleusername2
+exampleusername3
+exampleusername4

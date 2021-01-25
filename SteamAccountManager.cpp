@@ -18,36 +18,23 @@ using namespace std;
 string CONFIG_FILENAME = "config.dat";
 string STEAM_EXE = "steam.exe";
 string STEAM_DEFAULT_DIR = "C:\\Program Files (x86)\\Steam";
-string STEAM_USERS_CONFIG_FILE = "\\config\\loginusers.vdf";
 
 LPCSTR STEAM_REG_PATH = "Software\\Valve\\Steam";
 LPCSTR STEAM_REG_LOGIN_KEY = "AutoLoginUser";
 LPCSTR STEAM_REG_PW_KEY = "RememberPassword";
 
-class Account {
- public:
-  string username;
-  string password;
-
-  Account(string u, string p) {
-    username = u;
-    password = p;
-  }
-};
-
 class Config {
  public:
   string dir;
-  vector<Account> accounts;
+  vector<string> usernames;
 
-  void addAccount(string u, string p) {
-    Account a(u, p);
-    accounts.push_back(a);
+  void addUsername(string u) {
+    usernames.push_back(u);
     save();
   }
 
-  void removeAccount(int i) {
-    accounts.erase(accounts.begin() + i);
+  void removeUsername(int i) {
+    usernames.erase(usernames.begin() + i);
     save();
   }
 
@@ -65,15 +52,13 @@ class Config {
       string str = buffer.str();
 
       dir = getParameter(str, "dir");
-      string accStr = getParameter(str, "accounts");
+      string usernameStr = getParameter(str, "usernames");
 
-      // GET ACCOUNTS
-      istringstream accss(accStr);
-      string line, u, p;
-      while (getline(accss, line)) {
-        istringstream ss(line);
-        ss >> u >> p;
-        addAccount(u, p);
+      // GET USERNAMES
+      istringstream iss(usernameStr);
+      string line;
+      while (getline(iss, line)) {
+        addUsername(line);
       }
 
       file.close();
@@ -104,9 +89,9 @@ class Config {
     file << "[dir]" << '\n';
     file << dir << '\n';
 
-    file << "[accounts]";
-    for (auto &account : accounts) {
-      file << '\n' << account.username << ' ' << account.password;
+    file << "[usernames]";
+    for (string &username : usernames) {
+      file << '\n' << username;
     }
 
     file.close();
@@ -117,9 +102,8 @@ void setup(Config &config);
 void options(Config &config);
 void additionalOptions(Config &config);
 
-bool checkIfExistingAccount(string username, string configPath);
-void start(string path, bool existingAccount, Account Account);
-void terminate(string name);
+void start(string path);
+void terminate(string szName);
 void updateRegistry(string username);
 
 int getValidInput(int min, int max);
@@ -153,23 +137,21 @@ void setup(Config &config) {
   }
   config.changeDirectory(dir);
 
-  string u, p;
-  cout << "Enter account username: ";
+  string u;
+  cout << "Enter username: ";
   cin >> u;
-  cout << "Enter account password: ";
-  cin >> p;
 
-  config.addAccount(u, p);
+  config.addUsername(u);
 }
 
 void options(Config &config) {
   cout << "Enter 0 for additional options. \n";
-  for (size_t i = 0; i < config.accounts.size(); ++i) {
-    cout << i + 1 << ". " << config.accounts[i].username << "\n";
+  for (size_t i = 0; i < config.usernames.size(); ++i) {
+    cout << i + 1 << ". " << config.usernames[i] << "\n";
   }
   cout << "Enter option: ";
 
-  int input = getValidInput(0, config.accounts.size());
+  int input = getValidInput(0, config.usernames.size());
 
   if (input == 0) {
     cout << endl;
@@ -177,41 +159,36 @@ void options(Config &config) {
     cout << endl;
     options(config);
   } else {
-    Account account = config.accounts[input - 1];
-
-    string configPath = config.dir + STEAM_USERS_CONFIG_FILE;
-    bool existingAccount = checkIfExistingAccount(account.username, configPath);
+    string username = config.usernames[input - 1];
 
     terminate(STEAM_EXE);
-    updateRegistry(account.username);
+    updateRegistry(username);
 
     string steamPath = config.dir + "\\" + STEAM_EXE;
-    start(steamPath, existingAccount, account);
+    start(steamPath);
   }
 }
 
 void additionalOptions(Config &config) {
   cout << "Additional options: \n"
-       << "1. Add new account \n"
-       << "2. Delete existing account \n"
+       << "1. Add new username \n"
+       << "2. Delete existing username \n"
        << "3. Change 'steam.exe' directory \n"
        << "Select option: ";
 
   int option = getValidInput(1, 3);
 
   if (option == 1) {
-    string u, p;
-    cout << "Enter account username: ";
+    string u;
+    cout << "Enter username: ";
     cin >> u;
-    cout << "Enter account password: ";
-    cin >> p;
 
-    config.addAccount(u, p);
+    config.addUsername(u);
   } else if (option == 2) {
-    cout << "Enter account to delete: ";
-    int i = getValidInput(1, config.accounts.size());
+    cout << "Enter username to delete: ";
+    int i = getValidInput(1, config.usernames.size());
 
-    config.removeAccount(i - 1);
+    config.removeUsername(i - 1);
   } else if (option == 3) {
     string dir;
     cout << "Enter 'steam.exe' directory: ";
@@ -221,39 +198,35 @@ void additionalOptions(Config &config) {
   }
 }
 
-bool checkIfExistingAccount(string username, string configPath) {
-  ifstream file(configPath.c_str());
-
-  if (file.is_open()) {
-    stringstream buffer;
-    buffer << file.rdbuf();
-    string str = buffer.str();
-
-    if (str.find(username) != string::npos) {
-      return true;
-    } else {
-      return false;
-    }
-  }
-}
-
 // clang-format off
-void start(string path, bool existingAccount, Account account) {
-  wstring lpFile(path.begin(), path.end());
-  
-  string params = "-login " + account.username + " " + account.password;
-  wstring wParams(params.begin(), params.end());
-  
-  auto lpParams = (existingAccount) ? NULL : wParams.c_str();
+void start(string path) {
+  STARTUPINFO si;
+  PROCESS_INFORMATION pi;
 
-  ShellExecute(NULL, NULL, lpFile.c_str(), lpParams, NULL, SW_SHOW);
+  ZeroMemory(&si, sizeof(si));
+  si.cb = sizeof(si);
+  ZeroMemory(&pi, sizeof(pi));
+
+  wstring lpApplicationName(path.begin(), path.end());
+
+  CreateProcess(
+    lpApplicationName.c_str(), 
+    NULL, 
+    NULL, 
+    NULL, 
+    FALSE, 
+    0, 
+    NULL,
+    NULL, 
+    &si, 
+    &pi
+  );
 }
 // clang-format on
 
 // clang-format off
-void terminate(string name) {
-  wstring wsName(name.begin(), name.end());
-  const wchar_t *szName = wsName.c_str();
+void terminate(string szName) {
+  wstring wszName(szName.begin(), szName.end());
 
   PROCESSENTRY32 entry;
   entry.dwSize = sizeof(PROCESSENTRY32);
@@ -262,9 +235,10 @@ void terminate(string name) {
 
   if (Process32First(snapshot, &entry) == TRUE) {
     while (Process32Next(snapshot, &entry) == TRUE) {
-      if (wcscmp(entry.szExeFile, szName) == 0) {
+      if (wcscmp(entry.szExeFile, wszName.c_str()) == 0) {
         HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, entry.th32ProcessID);
         BOOL result = TerminateProcess(hProcess, 1);
+        
         CloseHandle(hProcess);
       }
     }
@@ -272,9 +246,7 @@ void terminate(string name) {
 
   CloseHandle(snapshot);
 }
-// clang-format on
 
-// clang-format off
 void updateRegistry(string username) {
   HKEY hKey;
 
@@ -282,9 +254,31 @@ void updateRegistry(string username) {
   strncpy(lpLoginValue, username.c_str(), sizeof(lpLoginValue));
   DWORD lpPwValue = 1;
 
-  RegOpenKeyExA(HKEY_CURRENT_USER, STEAM_REG_PATH, 0, KEY_SET_VALUE, &hKey);
-  RegSetValueExA(hKey, STEAM_REG_LOGIN_KEY, 0, REG_SZ, (const BYTE *)&lpLoginValue, sizeof(lpLoginValue));
-  RegSetValueExA(hKey, STEAM_REG_PW_KEY, 0, REG_DWORD, (const BYTE *)&lpPwValue, sizeof(lpPwValue));
+  RegOpenKeyExA(
+    HKEY_CURRENT_USER, 
+    STEAM_REG_PATH, 
+    0, 
+    KEY_SET_VALUE, 
+    &hKey
+  );
+
+  RegSetValueExA(
+    hKey, 
+    STEAM_REG_LOGIN_KEY, 
+    0, 
+    REG_SZ, 
+    (const BYTE *)&lpLoginValue, 
+    sizeof(lpLoginValue)
+  );
+  
+  RegSetValueExA(
+    hKey, 
+    STEAM_REG_PW_KEY, 
+    0, 
+    REG_DWORD, 
+    (const BYTE *)&lpPwValue, 
+    sizeof(lpPwValue)
+  );
 
   RegCloseKey(hKey);
 }
